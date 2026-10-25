@@ -124,7 +124,7 @@ app.get('/api/auth/status', async (req, res) => {
 // Setup initial administrator/teacher account
 app.post('/api/auth/setup-initial', async (req, res) => {
   try {
-    const { fullName, password } = req.body;
+    const { fullName, email, password } = req.body;
     if (!fullName?.trim() || !password || password.length < 4) {
       return res.status(400).json({ error: 'Họ tên và mật khẩu (tối thiểu 4 ký tự) là bắt buộc.' });
     }
@@ -141,6 +141,7 @@ app.post('/api/auth/setup-initial', async (req, res) => {
     const newTeacher = {
       uid: teacherId,
       fullName: fullName.trim(),
+      email: (email || '').trim().toLowerCase(),
       normalizedName: normalizeName(fullName),
       passwordHash,
       salt,
@@ -163,6 +164,7 @@ app.post('/api/auth/setup-initial', async (req, res) => {
       user: {
         uid: teacherId,
         displayName: newTeacher.fullName,
+        email: newTeacher.email,
         role: newTeacher.role
       }
     });
@@ -172,25 +174,101 @@ app.post('/api/auth/setup-initial', async (req, res) => {
   }
 });
 
-// Teacher Login with Full Name & Password
-app.post('/api/auth/login', async (req, res) => {
+// Teacher Registration with Full Name, Email, Password, ConfirmPassword
+app.post('/api/auth/register', async (req, res) => {
   try {
-    const { fullName, password, rememberMe } = req.body;
-    if (!fullName?.trim() || !password) {
-      return res.status(400).json({ error: 'Vui lòng nhập đầy đủ Họ và tên và Mật khẩu.' });
+    const { fullName, email, password, confirmPassword } = req.body;
+
+    if (!fullName?.trim() || fullName.trim().length < 2) {
+      return res.status(400).json({ error: 'Vui lòng nhập Họ và tên giáo viên (tối thiểu 2 ký tự).' });
     }
 
-    const normalizedInput = normalizeName(fullName);
+    const trimmedEmail = (email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      return res.status(400).json({ error: 'Địa chỉ email không đúng định dạng.' });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Mật khẩu cần có độ dài tối thiểu 6 ký tự.' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ error: 'Mật khẩu xác nhận không khớp. Vui lòng kiểm tra lại.' });
+    }
+
     const teachers = await queryFirestoreCollection('teachers');
 
-    // Find teacher by normalized name or exact fullName
+    // Check if email already registered
+    const existingEmail = teachers.find(t => t.email && t.email.toLowerCase() === trimmedEmail);
+    if (existingEmail) {
+      return res.status(400).json({ error: 'Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.' });
+    }
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(password, salt);
+    const teacherId = `teacher_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    // Strictly assign standard 'teacher' role for public registrations (never 'admin')
+    const newTeacher = {
+      uid: teacherId,
+      fullName: fullName.trim(),
+      email: trimmedEmail,
+      normalizedName: normalizeName(fullName),
+      passwordHash,
+      salt,
+      role: 'teacher' as const,
+      createdAt: new Date().toISOString()
+    };
+
+    await setFirestoreDoc('teachers', teacherId, newTeacher);
+
+    // Issue session token for 30 days
+    const token = createToken({
+      uid: teacherId,
+      displayName: newTeacher.fullName,
+      role: newTeacher.role
+    }, 30 * 24 * 3600);
+
+    res.json({
+      message: 'Đăng ký tài khoản giáo viên thành công!',
+      token,
+      user: {
+        uid: teacherId,
+        displayName: newTeacher.fullName,
+        email: newTeacher.email,
+        role: newTeacher.role
+      }
+    });
+  } catch (error: any) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Lỗi khi đăng ký tài khoản. Vui lòng thử lại.' });
+  }
+});
+
+// Teacher Login with Email/Name & Password
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { identifier, email, fullName, password, rememberMe } = req.body;
+    const loginInput = (identifier || email || fullName || '').trim();
+
+    if (!loginInput || !password) {
+      return res.status(400).json({ error: 'Vui lòng nhập Email hoặc Họ tên và Mật khẩu.' });
+    }
+
+    const normalizedInput = normalizeName(loginInput);
+    const lowerInput = loginInput.toLowerCase();
+    const teachers = await queryFirestoreCollection('teachers');
+
+    // Find teacher by email or normalized name or exact fullName
     const teacher = teachers.find(t =>
-      t.normalizedName === normalizedInput ||
-      t.fullName?.trim().toLowerCase() === fullName.trim().toLowerCase()
+      (t.email && t.email.toLowerCase() === lowerInput) ||
+      (t.normalizedName && t.normalizedName === normalizedInput) ||
+      (t.fullName && t.fullName.trim().toLowerCase() === lowerInput)
     );
 
     if (!teacher) {
-      return res.status(401).json({ error: 'Họ tên giáo viên không tồn tại trong hệ thống.' });
+      return res.status(401).json({ error: 'Tài khoản hoặc email chưa được đăng ký trong hệ thống.' });
     }
 
     if (teacher.role === 'pending') {
@@ -215,6 +293,7 @@ app.post('/api/auth/login', async (req, res) => {
       user: {
         uid: teacher.uid,
         displayName: teacher.fullName,
+        email: teacher.email || '',
         role: teacher.role
       }
     });

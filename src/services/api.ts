@@ -57,19 +57,33 @@ export async function checkAuthStatus(): Promise<{ hasTeachers: boolean; teacher
   return request('/api/auth/status');
 }
 
-export async function setupInitialAdmin(fullName: string, password: string): Promise<{ token: string; user: UserProfile }> {
+export async function setupInitialAdmin(fullName: string, password: string, email = ''): Promise<{ token: string; user: UserProfile }> {
   const data = await request('/api/auth/setup-initial', {
     method: 'POST',
-    body: JSON.stringify({ fullName, password })
+    body: JSON.stringify({ fullName, password, email })
   });
   setStoredToken(data.token, true);
   return data;
 }
 
-export async function loginTeacher(fullName: string, password: string, rememberMe = true): Promise<{ token: string; user: UserProfile }> {
+export async function registerTeacher(payload: {
+  fullName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}): Promise<{ token: string; user: UserProfile; message: string }> {
+  const data = await request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  setStoredToken(data.token, true);
+  return data;
+}
+
+export async function loginTeacher(identifier: string, password: string, rememberMe = true): Promise<{ token: string; user: UserProfile }> {
   const data = await request('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ fullName, password, rememberMe })
+    body: JSON.stringify({ identifier, password, rememberMe })
   });
   setStoredToken(data.token, rememberMe);
   return data;

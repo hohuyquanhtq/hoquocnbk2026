@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   School,
   Lock,
   User,
+  Mail,
   LogIn,
+  UserPlus,
   AlertCircle,
   ShieldCheck,
   CheckCircle2,
-  KeyRound
+  KeyRound,
+  ArrowRight
 } from 'lucide-react';
-import { checkAuthStatus, loginTeacher, setupInitialAdmin } from '../../services/api';
+import { loginTeacher, registerTeacher } from '../../services/api';
 import type { UserProfile } from '../../types';
 import { useToast } from '../common/Toast';
 
@@ -19,44 +22,33 @@ interface TeacherLoginFormProps {
 
 export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSuccess }) => {
   const { showToast } = useToast();
-  const [fullName, setFullName] = useState('');
-  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+
+  // Login form state
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
+
+  // Register form state
+  const [regFullName, setRegFullName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
+
+  // Status & error states
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Initial setup state if no accounts exist
-  const [isCheckingSystem, setIsCheckingSystem] = useState(true);
-  const [hasExistingTeachers, setHasExistingTeachers] = useState(true);
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  useEffect(() => {
-    checkSystemStatus();
-  }, []);
-
-  const checkSystemStatus = async () => {
-    setIsCheckingSystem(true);
-    try {
-      const status = await checkAuthStatus();
-      setHasExistingTeachers(status.hasTeachers);
-    } catch (err: any) {
-      console.warn('Could not check auth status', err);
-      // Assume existing teachers if server unreachable
-      setHasExistingTeachers(true);
-    } finally {
-      setIsCheckingSystem(false);
-    }
-  };
-
-  const handleLogin = async (e: React.FormEvent) => {
+  // Handle Login Submit
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
-    if (!fullName.trim()) {
-      setErrorMessage('Vui lòng nhập Họ và tên giáo viên.');
+    if (!loginIdentifier.trim()) {
+      setErrorMessage('Vui lòng nhập Email hoặc Họ và tên giáo viên.');
       return;
     }
-    if (!password) {
+    if (!loginPassword) {
       setErrorMessage('Vui lòng nhập Mật khẩu truy cập.');
       return;
     }
@@ -65,30 +57,39 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
     setErrorMessage(null);
 
     try {
-      const res = await loginTeacher(fullName.trim(), password, rememberMe);
+      const res = await loginTeacher(loginIdentifier.trim(), loginPassword, rememberMe);
       showToast(`Đăng nhập thành công! Xin chào ${res.user.displayName}`, 'success');
       onLoginSuccess(res.user);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Họ tên hoặc mật khẩu không chính xác.');
+      setErrorMessage(err.message || 'Họ tên/Email hoặc mật khẩu không chính xác.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleInitialSetup = async (e: React.FormEvent) => {
+  // Handle Register Submit
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
-    if (!fullName.trim()) {
-      setErrorMessage('Vui lòng nhập Họ và tên quản trị viên.');
+    if (!regFullName.trim() || regFullName.trim().length < 2) {
+      setErrorMessage('Vui lòng nhập Họ và tên giáo viên (tối thiểu 2 ký tự).');
       return;
     }
-    if (!password || password.length < 4) {
-      setErrorMessage('Mật khẩu cần có tối thiểu 4 ký tự.');
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!regEmail.trim() || !emailPattern.test(regEmail.trim())) {
+      setErrorMessage('Vui lòng nhập địa chỉ email hợp lệ (ví dụ: giaovien@truong.edu.vn).');
       return;
     }
-    if (password !== confirmPassword) {
-      setErrorMessage('Mật khẩu xác nhận không trùng khớp.');
+
+    if (!regPassword || regPassword.length < 6) {
+      setErrorMessage('Mật khẩu cần có độ dài tối thiểu 6 ký tự.');
+      return;
+    }
+
+    if (regPassword !== regConfirmPassword) {
+      setErrorMessage('Mật khẩu xác nhận không khớp. Vui lòng nhập lại.');
       return;
     }
 
@@ -96,57 +97,93 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
     setErrorMessage(null);
 
     try {
-      const res = await setupInitialAdmin(fullName.trim(), password);
-      showToast('Khởi tạo tài khoản Quản trị viên đầu tiên thành công!', 'success');
+      const res = await registerTeacher({
+        fullName: regFullName.trim(),
+        email: regEmail.trim().toLowerCase(),
+        password: regPassword,
+        confirmPassword: regConfirmPassword
+      });
+
+      showToast('Đăng ký tài khoản giáo viên thành công!', 'success');
       onLoginSuccess(res.user);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Lỗi khi thiết lập tài khoản ban đầu.');
+      setErrorMessage(err.message || 'Lỗi khi tạo tài khoản. Vui lòng thử lại.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (isCheckingSystem) {
-    return (
-      <div className="max-w-md mx-auto my-12 bg-white p-8 rounded-3xl border border-slate-200 shadow-xl text-center space-y-3">
-        <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-xs text-slate-500 font-medium">Đang kiểm tra trạng thái bảo mật hệ thống...</p>
-      </div>
-    );
-  }
-
-  // 1. First Time System Setup Mode (Only when 0 accounts exist)
-  if (!hasExistingTeachers) {
-    return (
-      <div className="max-w-md mx-auto my-10 bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6">
-        <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-600 text-white flex items-center justify-center mx-auto shadow-md shadow-amber-500/20">
-            <ShieldCheck className="w-8 h-8" />
-          </div>
-          <h2 className="text-xl font-black text-slate-900">Thiết Lập Tài Khoản Ban Đầu</h2>
-          <p className="text-xs text-slate-500">
-            Hệ thống chưa có tài khoản nào. Vui lòng thiết lập tài khoản Quản trị viên / Giáo viên đầu tiên.
-          </p>
+  return (
+    <div className="max-w-md mx-auto my-10 bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6">
+      {/* Icon & Title */}
+      <div className="text-center space-y-2">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-md shadow-blue-500/20">
+          {mode === 'login' ? <School className="w-8 h-8" /> : <UserPlus className="w-8 h-8" />}
         </div>
+        <h2 className="text-xl font-black text-slate-900 tracking-tight">
+          {mode === 'login' ? 'Đăng Nhập Giáo Viên' : 'Đăng Ký Tài Khoản Giáo Viên'}
+        </h2>
+        <p className="text-xs text-slate-500">
+          {mode === 'login'
+            ? 'Nhập email hoặc họ tên và mật khẩu để quản lý đề thi trắc nghiệm.'
+            : 'Tạo tài khoản mới để bắt đầu tạo đề từ file Word và phát hành thi trực tuyến.'}
+        </p>
+      </div>
 
-        <form onSubmit={handleInitialSetup} className="space-y-4">
+      {/* Switcher Tab Pills */}
+      <div className="flex bg-slate-100 p-1 rounded-2xl">
+        <button
+          type="button"
+          onClick={() => {
+            setMode('login');
+            setErrorMessage(null);
+          }}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+            mode === 'login'
+              ? 'bg-white text-blue-700 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Đăng Nhập
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode('register');
+            setErrorMessage(null);
+          }}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+            mode === 'register'
+              ? 'bg-white text-blue-700 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Đăng Ký Mới
+        </button>
+      </div>
+
+      {/* ---------------- LOGIN FORM ---------------- */}
+      {mode === 'login' ? (
+        <form onSubmit={handleLoginSubmit} className="space-y-4">
+          {/* Email or Full Name */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Họ và tên Quản trị viên / Giáo viên <span className="text-rose-500">*</span>
+              Email hoặc Họ và tên giáo viên <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <input
                 type="text"
                 required
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                placeholder="Ví dụ: Thầy Nguyễn Văn A"
+                value={loginIdentifier}
+                onChange={e => setLoginIdentifier(e.target.value)}
+                placeholder="Nhập email hoặc họ tên giáo viên..."
                 className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
               />
               <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             </div>
           </div>
 
+          {/* Password */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Mật khẩu truy cập <span className="text-rose-500">*</span>
@@ -155,15 +192,125 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
               <input
                 type="password"
                 required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Tối thiểu 4 ký tự"
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                placeholder="Nhập mật khẩu"
                 className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
               />
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             </div>
           </div>
 
+          {/* Remember Me */}
+          <div className="flex items-center justify-between text-xs pt-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700 font-medium">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={e => setRememberMe(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded border-slate-300"
+              />
+              <span>Ghi nhớ đăng nhập</span>
+            </label>
+          </div>
+
+          {/* Error display */}
+          {errorMessage && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <p className="flex-1">{errorMessage}</p>
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+          >
+            {isLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <LogIn className="w-4 h-4" />
+            )}
+            <span>{isLoading ? 'Đang xác thực...' : 'Đăng Nhập'}</span>
+          </button>
+
+          {/* Link to Register */}
+          <div className="pt-3 text-center">
+            <p className="text-xs text-slate-600">
+              Chưa có tài khoản?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('register');
+                  setErrorMessage(null);
+                }}
+                className="text-blue-600 hover:text-blue-700 font-bold hover:underline"
+              >
+                Đăng ký ngay
+              </button>
+            </p>
+          </div>
+        </form>
+      ) : (
+        /* ---------------- REGISTER FORM ---------------- */
+        <form onSubmit={handleRegisterSubmit} className="space-y-4">
+          {/* Full Name */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Họ và tên giáo viên <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                required
+                value={regFullName}
+                onChange={e => setRegFullName(e.target.value)}
+                placeholder="Ví dụ: Thầy Trần Quang Huy"
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
+              />
+              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+            </div>
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Địa chỉ Email <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type="email"
+                required
+                value={regEmail}
+                onChange={e => setRegEmail(e.target.value)}
+                placeholder="giaovien@truong.edu.vn"
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
+              />
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+            </div>
+          </div>
+
+          {/* Password */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Mật khẩu <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type="password"
+                required
+                value={regPassword}
+                onChange={e => setRegPassword(e.target.value)}
+                placeholder="Tối thiểu 6 ký tự"
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
+              />
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+            </div>
+          </div>
+
+          {/* Confirm Password */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Xác nhận mật khẩu <span className="text-rose-500">*</span>
@@ -172,8 +319,8 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
               <input
                 type="password"
                 required
-                value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
+                value={regConfirmPassword}
+                onChange={e => setRegConfirmPassword(e.target.value)}
                 placeholder="Nhập lại mật khẩu"
                 className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
               />
@@ -181,126 +328,61 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
             </div>
           </div>
 
+          {/* Error display */}
           {errorMessage && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
+              <p className="flex-1">{errorMessage}</p>
             </div>
           )}
 
-          <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
-            <p className="font-semibold">Lưu ý bảo mật:</p>
-            <p className="text-blue-800 text-[11px]">
-              Sau khi khởi tạo tài khoản này, hệ thống sẽ tự động khóa vĩnh viễn trang thiết lập. Người dùng công khai sẽ không thể tự đăng ký.
+          {/* Policy Notice */}
+          <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 space-y-1">
+            <p className="font-semibold flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-blue-600" />
+              Chính sách phân quyền:
+            </p>
+            <p className="text-[11px] text-blue-800 leading-relaxed">
+              Tài khoản đăng ký mới sẽ nhận quyền Giáo viên chuẩn để tạo đề từ file Word, cấu hình thời gian thi và xem báo cáo kết quả của học sinh.
             </p>
           </div>
 
+          {/* Submit Button */}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm rounded-xl shadow-md shadow-amber-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
           >
             {isLoading ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              <ShieldCheck className="w-4 h-4" />
+              <UserPlus className="w-4 h-4" />
             )}
-            <span>Khởi Tạo Tài Khoản Quản Trị</span>
+            <span>{isLoading ? 'Đang tạo tài khoản...' : 'Đăng Ký Tài Khoản'}</span>
           </button>
+
+          {/* Link to Login */}
+          <div className="pt-3 text-center">
+            <p className="text-xs text-slate-600">
+              Đã có tài khoản?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setErrorMessage(null);
+                }}
+                className="text-blue-600 hover:text-blue-700 font-bold hover:underline"
+              >
+                Đăng nhập
+              </button>
+            </p>
+          </div>
         </form>
-      </div>
-    );
-  }
-
-  // 2. Standard Teacher Login Form (Strictly Họ tên + Mật khẩu + Ghi nhớ)
-  return (
-    <div className="max-w-md mx-auto my-10 bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6">
-      <div className="text-center space-y-2">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-md shadow-blue-500/20">
-          <School className="w-8 h-8" />
-        </div>
-        <h2 className="text-xl font-black text-slate-900 tracking-tight">Đăng Nhập Giáo Viên</h2>
-        <p className="text-xs text-slate-500">
-          Nhập họ tên và mật khẩu được cấp để quản lý đề thi trắc nghiệm.
-        </p>
-      </div>
-
-      <form onSubmit={handleLogin} className="space-y-4">
-        {/* Full Name */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Họ và tên giáo viên <span className="text-rose-500">*</span>
-          </label>
-          <div className="relative">
-            <input
-              type="text"
-              required
-              value={fullName}
-              onChange={e => setFullName(e.target.value)}
-              placeholder="Ví dụ: Nguyễn Văn A hoặc admin"
-              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
-            />
-            <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-          </div>
-        </div>
-
-        {/* Password */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Mật khẩu truy cập <span className="text-rose-500">*</span>
-          </label>
-          <div className="relative">
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Nhập mật khẩu"
-              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:border-blue-600 focus:outline-hidden"
-            />
-            <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-          </div>
-        </div>
-
-        {/* Remember Me */}
-        <div className="flex items-center justify-between text-xs pt-1">
-          <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700 font-medium">
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={e => setRememberMe(e.target.checked)}
-              className="w-4 h-4 text-blue-600 rounded border-slate-300"
-            />
-            <span>Ghi nhớ đăng nhập</span>
-          </label>
-        </div>
-
-        {/* Error message */}
-        {errorMessage && (
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <p className="flex-1">{errorMessage}</p>
-          </div>
-        )}
-
-        {/* Submit Button */}
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
-        >
-          {isLoading ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <LogIn className="w-4 h-4" />
-          )}
-          <span>{isLoading ? 'Đang xác thực...' : 'Đăng Nhập'}</span>
-        </button>
-      </form>
+      )}
 
       <div className="pt-2 border-t border-slate-100 text-center">
         <p className="text-[11px] text-slate-400">
-          Hệ thống bảo vệ nội bộ. Chỉ tài khoản giáo viên được cấp phép mới có thể truy cập.
+          Hệ thống tạo đề Word &amp; Thi trắc nghiệm trực tuyến dùng chung cộng đồng
         </p>
       </div>
     </div>

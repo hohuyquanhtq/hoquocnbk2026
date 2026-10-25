@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role assignment (admin, teacher, pending)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 1024 },
+        "role": { "type": "string", "enum": ["admin", "teacher", "pending"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Quiz metadata, publication settings and scoring rules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 32 },
+        "title": { "type": "string", "maxLength": 256 },
+        "subject": { "type": "string", "maxLength": 128 },
+        "grade": { "type": "string", "maxLength": 64 },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "teacherName": { "type": "string", "maxLength": 128 },
+        "teacherEmail": { "type": "string", "maxLength": 256 },
+        "status": { "type": "string", "enum": ["draft", "published", "closed"] },
+        "durationMinutes": { "type": "number" },
+        "password": { "type": "string", "maxLength": 128 },
+        "hasPassword": { "type": "boolean" },
+        "maxAttempts": { "type": "number" },
+        "totalPoints": { "type": "number" },
+        "shuffleQuestions": { "type": "boolean" },
+        "shuffleOptions": { "type": "boolean" },
+        "showScoreImmediately": { "type": "boolean" },
+        "allowViewAnswers": { "type": "boolean" },
+        "minScoreToViewAnswers": { "type": "number" },
+        "allowViewExplanation": { "type": "boolean" },
+        "allowRetake": { "type": "boolean" },
+        "maxParticipants": { "type": "number" },
+        "questionsCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "title", "teacherId", "status"]
+    },
+    "QuizDetail": {
+      "title": "QuizDetail",
+      "description": "Full questions including solutions and correct answers for grading (teacher-only or server)",
+      "type": "object",
+      "properties": {
+        "quizId": { "type": "string", "maxLength": 128 },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "questions": { "type": "string", "description": "JSON string or array of questions with answers" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["quizId", "teacherId"]
+    },
+    "QuizPublic": {
+      "title": "QuizPublic",
+      "description": "Sanitized questions without answers for public test takers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 32 },
+        "title": { "type": "string", "maxLength": 256 },
+        "subject": { "type": "string", "maxLength": 128 },
+        "grade": { "type": "string", "maxLength": 64 },
+        "teacherName": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["draft", "published", "closed"] },
+        "durationMinutes": { "type": "number" },
+        "hasPassword": { "type": "boolean" },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "shuffleQuestions": { "type": "boolean" },
+        "shuffleOptions": { "type": "boolean" },
+        "showScoreImmediately": { "type": "boolean" },
+        "allowViewAnswers": { "type": "boolean" },
+        "minScoreToViewAnswers": { "type": "number" },
+        "allowViewExplanation": { "type": "boolean" },
+        "allowRetake": { "type": "boolean" },
+        "questionsCount": { "type": "number" },
+        "questionsSanitized": { "type": "string", "description": "JSON serialized sanitized questions" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "title", "status"]
+    },
+    "Attempt": {
+      "title": "Attempt",
+      "description": "Student exam attempt and auto-graded results",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "quizId": { "type": "string", "maxLength": 128 },
+        "quizCode": { "type": "string", "maxLength": 32 },
+        "quizTitle": { "type": "string", "maxLength": 256 },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "studentClass": { "type": "string", "maxLength": 64 },
+        "studentSchool": { "type": "string", "maxLength": 128 },
+        "startedAt": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "durationSeconds": { "type": "number" },
+        "score": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "wrongCount": { "type": "number" },
+        "unansweredCount": { "type": "number" },
+        "passedThreshold": { "type": "boolean" },
+        "canViewAnswers": { "type": "boolean" },
+        "studentAnswers": { "type": "string", "description": "JSON encoded student answers" },
+        "status": { "type": "string", "enum": ["submitted"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "quizId", "studentName", "score"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "User profiles and role management"
+    },
+    "/quizzes/{quizId}": {
+      "schema": { "$ref": "Quiz" },
+      "description": "Quiz metadata owned by teacher"
+    },
+    "/quizDetails/{quizId}": {
+      "schema": { "$ref": "QuizDetail" },
+      "description": "Full quiz content with answers for grading"
+    },
+    "/quizPublic/{quizId}": {
+      "schema": { "$ref": "QuizPublic" },
+      "description": "Public quiz view for students (no answers)"
+    },
+    "/attempts/{attemptId}": {
+      "schema": { "$ref": "Attempt" },
+      "description": "Submitted test attempts"
+    }
+  }
+}

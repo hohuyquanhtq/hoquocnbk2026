@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'hohuyquanhtq@gmail.com'
+      );
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isTeacher() {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
+        )
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Quizzes metadata collection (teachers only)
+    match /quizzes/{quizId} {
+      allow get: if (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
+      allow list: if isSignedIn() && (resource.data.teacherId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (isTeacher() || isSuperAdmin()) && request.resource.data.teacherId == request.auth.uid;
+      allow update: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+      allow delete: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    // Quiz details (contains answer keys & solutions - protected from students)
+    match /quizDetails/{quizId} {
+      allow get: if (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
+      allow create, update: if isSignedIn() && ((request.resource.data.teacherId == request.auth.uid) || isAdmin());
+      allow delete: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+
+    // Public Quiz (sanitized questions without answers)
+    match /quizPublic/{quizId} {
+      // Anyone can read public quiz definition to take the test
+      allow get: if true;
+      allow list: if true;
+      // Only teacher or admin can publish
+      allow create, update, delete: if isSignedIn() && (isTeacher() || isAdmin());
+    }
+
+    // Attempts (student test submissions)
+    match /attempts/{attemptId} {
+      // Allow student to read their own result by attempt ID
+      allow get: if true;
+      // Teacher can list all attempts for their quizzes
+      allow list: if (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
+      // Any student can submit an attempt
+      allow create: if request.resource.data.id == attemptId;
+      // Teacher or admin can delete attempts
+      allow update, delete: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+    }
+  }
+}

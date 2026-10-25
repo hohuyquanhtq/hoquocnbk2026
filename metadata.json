@@ -1,0 +1,6 @@
+{
+  "name": "Hệ Thống Tạo Đề Nhanh & Thi Trắc Nghiệm Online",
+  "description": "Nền tảng tạo đề trắc nghiệm từ file Word, cấu hình linh hoạt, phát hành link công khai và tổ chức thi trực tuyến cộng đồng với chấm điểm tự động.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

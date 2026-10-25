@@ -84,41 +84,39 @@ export async function syncUserProfile(firebaseUser: {
   uid: string;
   email: string | null;
   displayName: string | null;
-  photoURL: string | null;
+  photoURL?: string | null;
 }): Promise<UserProfile> {
-  const path = `users/${firebaseUser.uid}`;
+  const isSuperAdmin = (firebaseUser.email || '').toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+
+  const fallbackProfile: UserProfile = {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email || '',
+    displayName: firebaseUser.displayName || 'Giáo viên',
+    photoURL: firebaseUser.photoURL || '',
+    role: isSuperAdmin ? 'admin' : 'teacher',
+    createdAt: new Date().toISOString()
+  };
+
   try {
     const existing = await getUserProfile(firebaseUser.uid);
-    const isSuperAdmin = (firebaseUser.email || '').toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
-
     if (existing) {
-      // If super admin and not yet admin, upgrade
       if (isSuperAdmin && existing.role !== 'admin') {
         const updated: UserProfile = {
           ...existing,
           role: 'admin',
           updatedAt: new Date().toISOString()
         };
-        await setDoc(doc(db, 'users', firebaseUser.uid), updated, { merge: true });
+        await setDoc(doc(db, 'users', firebaseUser.uid), updated, { merge: true }).catch(() => {});
         return updated;
       }
       return existing;
     }
 
-    // New profile: Super admin gets 'admin', others get 'teacher' or 'pending'
-    const newProfile: UserProfile = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email || '',
-      displayName: firebaseUser.displayName || 'Giáo viên',
-      photoURL: firebaseUser.photoURL || '',
-      role: isSuperAdmin ? 'admin' : 'teacher',
-      createdAt: new Date().toISOString()
-    };
-
-    await setDoc(doc(db, 'users', firebaseUser.uid), newProfile);
-    return newProfile;
+    await setDoc(doc(db, 'users', firebaseUser.uid), fallbackProfile);
+    return fallbackProfile;
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('Lỗi ghi hồ sơ giáo viên vào Firestore, sử dụng hồ sơ dự phòng:', error);
+    return fallbackProfile;
   }
 }
 

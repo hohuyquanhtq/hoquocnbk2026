@@ -12,6 +12,9 @@ import {
   KeyRound,
   ArrowRight
 } from 'lucide-react';
+import { auth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from '../../firebase/config';
+import { syncUserProfile } from '../../firebase/firestoreService';
+import { getAuthErrorMessage } from '../../utils/authErrors';
 import { loginTeacher, registerTeacher } from '../../services/api';
 import type { UserProfile } from '../../types';
 import { useToast } from '../common/Toast';
@@ -44,7 +47,8 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
     e.preventDefault();
     if (isLoading) return;
 
-    if (!loginIdentifier.trim()) {
+    const cleanIdentifier = loginIdentifier.trim();
+    if (!cleanIdentifier) {
       setErrorMessage('Vui lòng nhập Email hoặc Họ và tên giáo viên.');
       return;
     }
@@ -56,12 +60,56 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
     setIsLoading(true);
     setErrorMessage(null);
 
+    const isEmail = cleanIdentifier.includes('@');
+    const cleanEmail = cleanIdentifier.toLowerCase();
+
+    // 1. If it's an email format, attempt Firebase Auth client first
+    if (isEmail) {
+      try {
+        console.log('[Auth] Đang đăng nhập Firebase Authentication:', cleanEmail);
+        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, loginPassword);
+        
+        // Sync profile from Firestore
+        const profile = await syncUserProfile({
+          uid: userCred.user.uid,
+          email: userCred.user.email,
+          displayName: userCred.user.displayName || cleanIdentifier
+        });
+
+        // Sync backend session token
+        await loginTeacher(cleanEmail, loginPassword, rememberMe).catch(err => {
+          console.warn('[Backend Session Sync]', err);
+        });
+
+        showToast(`Đăng nhập thành công! Xin chào ${profile.displayName}`, 'success');
+        onLoginSuccess(profile);
+        return;
+      } catch (fbErr: any) {
+        console.warn('[Firebase Auth Login Check]', fbErr?.code || fbErr?.message);
+        
+        // If it's a specific credential error, try backend fallback or show error
+        const isProviderDisabled = fbErr?.code === 'auth/operation-not-allowed';
+        const isUserNotFound = fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential';
+        
+        if (!isProviderDisabled && !isUserNotFound) {
+          // Explicit Firebase errors like wrong password, user disabled, etc.
+          setErrorMessage(getAuthErrorMessage(fbErr));
+          setIsLoading(false);
+          return;
+        }
+        // If operation not allowed or user might be in backend Firestore, fallback to backend API below
+      }
+    }
+
+    // 2. Authenticate against Backend Firestore Server
     try {
-      const res = await loginTeacher(loginIdentifier.trim(), loginPassword, rememberMe);
+      console.log('[Auth] Xác thực qua Cloud Firestore Server:', cleanIdentifier);
+      const res = await loginTeacher(cleanIdentifier, loginPassword, rememberMe);
       showToast(`Đăng nhập thành công! Xin chào ${res.user.displayName}`, 'success');
       onLoginSuccess(res.user);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Họ tên/Email hoặc mật khẩu không chính xác.');
+    } catch (serverErr: any) {
+      console.error('[Backend Auth Error]', serverErr);
+      setErrorMessage(getAuthErrorMessage(serverErr));
     } finally {
       setIsLoading(false);
     }
@@ -72,13 +120,15 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
     e.preventDefault();
     if (isLoading) return;
 
-    if (!regFullName.trim() || regFullName.trim().length < 2) {
+    const cleanFullName = regFullName.trim();
+    if (!cleanFullName || cleanFullName.length < 2) {
       setErrorMessage('Vui lòng nhập Họ và tên giáo viên (tối thiểu 2 ký tự).');
       return;
     }
 
+    const cleanEmail = regEmail.trim().toLowerCase();
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!regEmail.trim() || !emailPattern.test(regEmail.trim())) {
+    if (!cleanEmail || !emailPattern.test(cleanEmail)) {
       setErrorMessage('Vui lòng nhập địa chỉ email hợp lệ (ví dụ: giaovien@truong.edu.vn).');
       return;
     }
@@ -89,25 +139,84 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
     }
 
     if (regPassword !== regConfirmPassword) {
-      setErrorMessage('Mật khẩu xác nhận không khớp. Vui lòng nhập lại.');
+      setErrorMessage('Mật khẩu xác nhận không khớp. Vui lòng kiểm tra lại.');
       return;
     }
 
     setIsLoading(true);
     setErrorMessage(null);
 
+    // 1. Attempt registration via Firebase Authentication client SDK
+    let registeredWithFirebase = false;
+    let createdUid: string | null = null;
+
     try {
+      console.log('[Auth] Khởi tạo tài khoản Firebase Auth cho:', cleanEmail);
+      const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, regPassword);
+      registeredWithFirebase = true;
+      createdUid = userCred.user.uid;
+
+      // Update Firebase user profile
+      await updateProfile(userCred.user, {
+        displayName: cleanFullName
+      }).catch(err => console.warn('Không thể cập nhật displayName trên Firebase user:', err));
+
+      // Save/sync teacher profile into Firestore users/{uid}
+      const profile = await syncUserProfile({
+        uid: userCred.user.uid,
+        email: cleanEmail,
+        displayName: cleanFullName
+      });
+
+      // Also register on server to keep backend Firestore collection synced
+      await registerTeacher({
+        fullName: cleanFullName,
+        email: cleanEmail,
+        password: regPassword,
+        confirmPassword: regConfirmPassword
+      }).catch(err => console.warn('Server sync note:', err?.message));
+
+      showToast('Đăng ký tài khoản giáo viên thành công!', 'success');
+      onLoginSuccess(profile);
+      return;
+    } catch (fbErr: any) {
+      console.error('[Firebase Auth Register Error]', fbErr);
+      
+      const errorCode = fbErr?.code || '';
+
+      // If email is already taken or password weak or email invalid, report immediately
+      if (
+        errorCode === 'auth/email-already-in-use' ||
+        errorCode === 'auth/weak-password' ||
+        errorCode === 'auth/invalid-email'
+      ) {
+        setErrorMessage(getAuthErrorMessage(fbErr));
+        setIsLoading(false);
+        return;
+      }
+
+      // If Firebase Auth Email/Password provider is not enabled on this GCP project
+      // (errorCode === 'auth/operation-not-allowed'), seamlessly proceed to secure Firestore Server
+      if (errorCode === 'auth/operation-not-allowed' || errorCode === 'auth/configuration-not-found') {
+        console.warn('Firebase Email/Password provider chưa kích hoạt trên GCP console, tự động chuyển sang chế độ xác thực Cloud Server Firestore.');
+      }
+    }
+
+    // 2. Fallback: Register via Cloud Firestore Server
+    try {
+      console.log('[Auth] Đăng ký tài khoản qua Cloud Firestore Server:', cleanEmail);
       const res = await registerTeacher({
-        fullName: regFullName.trim(),
-        email: regEmail.trim().toLowerCase(),
+        fullName: cleanFullName,
+        email: cleanEmail,
         password: regPassword,
         confirmPassword: regConfirmPassword
       });
 
       showToast('Đăng ký tài khoản giáo viên thành công!', 'success');
       onLoginSuccess(res.user);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Lỗi khi tạo tài khoản. Vui lòng thử lại.');
+    } catch (serverErr: any) {
+      console.error('[Server Register Error]', serverErr);
+      setErrorMessage(getAuthErrorMessage(serverErr));
     } finally {
       setIsLoading(false);
     }
@@ -138,7 +247,7 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
             setMode('login');
             setErrorMessage(null);
           }}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             mode === 'login'
               ? 'bg-white text-blue-700 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
@@ -152,7 +261,7 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
             setMode('register');
             setErrorMessage(null);
           }}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             mode === 'register'
               ? 'bg-white text-blue-700 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
@@ -246,7 +355,7 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
                   setMode('register');
                   setErrorMessage(null);
                 }}
-                className="text-blue-600 hover:text-blue-700 font-bold hover:underline"
+                className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer"
               >
                 Đăng ký ngay
               </button>
@@ -371,7 +480,7 @@ export const TeacherLoginForm: React.FC<TeacherLoginFormProps> = ({ onLoginSucce
                   setMode('login');
                   setErrorMessage(null);
                 }}
-                className="text-blue-600 hover:text-blue-700 font-bold hover:underline"
+                className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer"
               >
                 Đăng nhập
               </button>

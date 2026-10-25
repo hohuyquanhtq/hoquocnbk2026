@@ -18,12 +18,12 @@ import {
 } from 'lucide-react';
 import type { Quiz, UserProfile } from '../../types';
 import {
-  getTeacherQuizzes,
-  updateQuizStatus,
-  deleteQuiz,
-  getQuizDetail,
-  saveQuiz
-} from '../../firebase/firestoreService';
+  apiGetTeacherQuizzes,
+  apiUpdateQuizStatus,
+  apiDeleteQuiz,
+  apiGetQuizDetail,
+  apiSaveQuiz
+} from '../../services/api';
 import { QuizPublishSuccess } from './QuizPublishSuccess';
 import { QuizSubmissionsView } from './QuizSubmissionsView';
 import { AdminPanel } from './AdminPanel';
@@ -58,11 +58,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const loadQuizzes = async () => {
     setIsLoading(true);
     try {
-      const list = await getTeacherQuizzes(user.uid, user.role === 'admin');
+      const list = await apiGetTeacherQuizzes();
       setQuizzes(list);
     } catch (err: any) {
       console.error(err);
-      showToast('Lỗi tải danh sách đề thi', 'error');
+      showToast('Lỗi tải danh sách đề thi: ' + err.message, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -71,7 +71,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const handleToggleStatus = async (quiz: Quiz) => {
     const nextStatus = quiz.status === 'published' ? 'closed' : 'published';
     try {
-      await updateQuizStatus(quiz.id, nextStatus);
+      await apiUpdateQuizStatus(quiz.id, nextStatus);
       setQuizzes(prev => prev.map(q => (q.id === quiz.id ? { ...q, status: nextStatus } : q)));
       showToast(nextStatus === 'published' ? 'Đã mở lại đề thi!' : 'Đã đóng đề thi!', 'success');
     } catch (err: any) {
@@ -85,7 +85,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       return;
     }
     try {
-      await deleteQuiz(quiz.id);
+      await apiDeleteQuiz(quiz.id);
       setQuizzes(prev => prev.filter(q => q.id !== quiz.id));
       showToast('Đã xóa đề thi thành công', 'success');
     } catch (err: any) {
@@ -96,7 +96,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const handleDuplicate = async (quiz: Quiz) => {
     try {
-      const detail = await getQuizDetail(quiz.id);
+      const detail = await apiGetQuizDetail(quiz.id);
       if (!detail) {
         showToast('Không thể đọc chi tiết đề thi cũ', 'error');
         return;
@@ -116,44 +116,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         updatedAt: now,
       };
 
-      const newDetail = {
-        quizId: newId,
-        teacherId: user.uid,
-        questions: detail.questions,
-        updatedAt: now,
-      };
-
-      const newPublic = {
-        id: newId,
-        code: newCode,
-        title: newQuiz.title,
-        subject: newQuiz.subject,
-        grade: newQuiz.grade,
-        teacherName: user.displayName || 'Giáo viên',
-        status: 'draft' as const,
-        durationMinutes: newQuiz.durationMinutes,
-        hasPassword: newQuiz.hasPassword,
-        totalPoints: newQuiz.totalPoints,
-        shuffleQuestions: newQuiz.shuffleQuestions,
-        shuffleOptions: newQuiz.shuffleOptions,
-        showScoreImmediately: newQuiz.showScoreImmediately,
-        allowViewAnswers: newQuiz.allowViewAnswers,
-        minScoreToViewAnswers: newQuiz.minScoreToViewAnswers,
-        allowViewExplanation: newQuiz.allowViewExplanation,
-        allowRetake: newQuiz.allowRetake,
-        questionsCount: newQuiz.questionsCount,
-        questionsSanitized: detail.questions.map(q => ({
-          id: q.id,
-          order: q.order,
-          content: q.content,
-          type: q.type,
-          options: q.options,
-          points: q.points || 1,
-        })),
-        updatedAt: now,
-      };
-
-      await saveQuiz(newQuiz, newDetail, newPublic);
+      await apiSaveQuiz(newQuiz, detail.questions);
       setQuizzes(prev => [newQuiz, ...prev]);
       showToast('Đã nhân bản đề thi thành công!', 'success');
     } catch (err: any) {

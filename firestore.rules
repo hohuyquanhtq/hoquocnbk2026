@@ -32,8 +32,12 @@ service cloud.firestore {
       );
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function isServerWrite() {
+      return request.resource.data.secretKey == 'eduquiz_srv_8e27d949';
+    }
+
+    function isServerRead() {
+      return resource.data.secretKey == 'eduquiz_srv_8e27d949';
     }
 
     // Default deny all other paths
@@ -41,32 +45,40 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Users collection
+    // Internal Teacher authentication credentials collection (server-gated)
+    match /teachers/{teacherId} {
+      allow get: if isServerRead();
+      allow list: if isServerRead();
+      allow create, update: if isServerWrite();
+      allow delete: if isServerRead();
+    }
+
+    // Users collection (Google OAuth / profile records)
     match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin();
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && (
+      allow get: if isServerRead() || (isSignedIn() && (request.auth.uid == userId || isAdmin()));
+      allow list: if isServerRead() || isAdmin();
+      allow create: if isServerWrite() || (isSignedIn() && request.auth.uid == userId);
+      allow update: if isServerWrite() || (isSignedIn() && (
         (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])) ||
         isAdmin()
-      );
-      allow delete: if isAdmin();
+      ));
+      allow delete: if isServerRead() || isAdmin();
     }
 
     // Quizzes metadata collection (teachers only)
     match /quizzes/{quizId} {
-      allow get: if (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
-      allow list: if isSignedIn() && (resource.data.teacherId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && (isTeacher() || isSuperAdmin()) && request.resource.data.teacherId == request.auth.uid;
-      allow update: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
-      allow delete: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+      allow get: if isServerRead() || (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
+      allow list: if isServerRead() || (isSignedIn() && (resource.data.teacherId == request.auth.uid || isAdmin()));
+      allow create: if isServerWrite() || (isSignedIn() && (isTeacher() || isSuperAdmin()) && request.resource.data.teacherId == request.auth.uid);
+      allow update: if isServerWrite() || (isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin()));
+      allow delete: if isServerRead() || (isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin()));
     }
 
     // Quiz details (contains answer keys & solutions - protected from students)
     match /quizDetails/{quizId} {
-      allow get: if (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
-      allow create, update: if isSignedIn() && ((request.resource.data.teacherId == request.auth.uid) || isAdmin());
-      allow delete: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+      allow get: if isServerRead() || (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
+      allow create, update: if isServerWrite() || (isSignedIn() && ((request.resource.data.teacherId == request.auth.uid) || isAdmin()));
+      allow delete: if isServerRead() || (isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin()));
     }
 
     // Public Quiz (sanitized questions without answers)
@@ -74,20 +86,20 @@ service cloud.firestore {
       // Anyone can read public quiz definition to take the test
       allow get: if true;
       allow list: if true;
-      // Only teacher or admin can publish
-      allow create, update, delete: if isSignedIn() && (isTeacher() || isAdmin());
+      // Only server, teacher or admin can publish
+      allow create, update, delete: if isServerWrite() || (isSignedIn() && (isTeacher() || isAdmin()));
     }
 
     // Attempts (student test submissions)
     match /attempts/{attemptId} {
       // Allow student to read their own result by attempt ID
       allow get: if true;
-      // Teacher can list all attempts for their quizzes
-      allow list: if (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
-      // Any student can submit an attempt
-      allow create: if request.resource.data.id == attemptId;
-      // Teacher or admin can delete attempts
-      allow update, delete: if isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin());
+      // Teacher or server can list all attempts for their quizzes
+      allow list: if isServerRead() || (isSignedIn() && resource.data.teacherId == request.auth.uid) || isAdmin();
+      // Any student or server can submit an attempt
+      allow create: if isServerWrite() || request.resource.data.id == attemptId;
+      // Teacher, server or admin can delete attempts
+      allow update, delete: if isServerRead() || (isSignedIn() && ((resource.data.teacherId == request.auth.uid) || isAdmin()));
     }
   }
 }

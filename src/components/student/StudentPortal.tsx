@@ -13,7 +13,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import type { QuizPublic } from '../../types';
-import { getPublicQuizByCodeOrId } from '../../firebase/firestoreService';
+import { apiGetPublicQuiz, apiVerifyQuizPassword } from '../../services/api';
 import { useToast } from '../common/Toast';
 
 interface StudentPortalProps {
@@ -58,7 +58,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setErrorMessage(null);
 
     try {
-      const quiz = await getPublicQuizByCodeOrId(code);
+      const quiz = await apiGetPublicQuiz(code);
       if (!quiz) {
         setErrorMessage(`Không tìm thấy đề thi với mã "${code}". Vui lòng kiểm tra lại mã hoặc hỏi giáo viên.`);
         setLoadedQuiz(null);
@@ -70,13 +70,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMessage('Không thể kết nối đến máy chủ. Vui lòng thử lại sau.');
+      setErrorMessage(err.message || 'Không tìm thấy đề thi hoặc có lỗi kết nối máy chủ.');
+      setLoadedQuiz(null);
     } finally {
       setIsLoadingQuiz(false);
     }
   };
 
-  const handleEnterExam = (e: React.FormEvent) => {
+  const handleEnterExam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loadedQuiz) return;
 
@@ -91,11 +92,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     // Verify Password if quiz has password
     if (loadedQuiz.hasPassword) {
-      // In production, we compare the entered password
-      // Since quizPublic contains password metadata or verification
-      const expectedPassword = loadedQuiz.passwordPlain || '';
-      if (expectedPassword && passwordInput.trim() !== expectedPassword.trim()) {
-        setErrorMessage('Mật khẩu bài thi không chính xác. Vui lòng kiểm tra lại.');
+      try {
+        const isValid = await apiVerifyQuizPassword(loadedQuiz.id, passwordInput.trim());
+        if (!isValid) {
+          setErrorMessage('Mật khẩu bài thi không chính xác. Vui lòng kiểm tra lại.');
+          return;
+        }
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Mật khẩu bài thi không chính xác.');
         return;
       }
     }

@@ -4,7 +4,7 @@ import type { Quiz, Question, QuizDetail, QuizPublic, UserProfile } from '../../
 import { WordUploader } from './WordUploader';
 import { QuestionEditor } from './QuestionEditor';
 import { QuizSettingsForm } from './QuizSettingsForm';
-import { saveQuiz } from '../../firebase/firestoreService';
+import { apiSaveQuiz } from '../../services/api';
 import { useToast } from '../common/Toast';
 
 interface CreateQuizModalProps {
@@ -168,9 +168,9 @@ export const CreateQuizModal: React.FC<CreateQuizModalProps> = ({
     };
 
     try {
-      await saveQuiz(fullQuiz, quizDetail, quizPublic);
+      const saved = await apiSaveQuiz(fullQuiz, questions);
       showToast(status === 'published' ? 'Phát hành đề thi thành công!' : 'Đã lưu bản nháp đề thi!', 'success');
-      onSuccess(fullQuiz);
+      onSuccess(saved);
     } catch (err: any) {
       console.error(err);
       showToast('Lỗi khi lưu đề thi lên máy chủ: ' + err.message, 'error');

@@ -16,7 +16,7 @@ import {
   X
 } from 'lucide-react';
 import type { Quiz, QuizAttempt, Question } from '../../types';
-import { getQuizAttemptsForTeacher, getQuizDetail } from '../../firebase/firestoreService';
+import { apiGetQuizAttempts, apiGetQuizDetail } from '../../services/api';
 import { exportAttemptsToExcel } from '../../utils/exportExcel';
 import { useToast } from '../common/Toast';
 
@@ -42,8 +42,8 @@ export const QuizSubmissionsView: React.FC<QuizSubmissionsViewProps> = ({ quiz, 
     setIsLoading(true);
     try {
       const [fetchedAttempts, detail] = await Promise.all([
-        getQuizAttemptsForTeacher(quiz.id),
-        getQuizDetail(quiz.id)
+        apiGetQuizAttempts(quiz.id),
+        apiGetQuizDetail(quiz.id)
       ]);
       setAttempts(fetchedAttempts);
       if (detail && detail.questions) {
